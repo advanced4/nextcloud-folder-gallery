@@ -4,6 +4,15 @@ Automated tests exercise the actual distributed script inside a synthetic DOM:
 setup/privacy boundaries, matching, XML parsing, preview selection, URL encoding,
 download links, concurrency, errors, navigation cancellation, refresh, and search.
 
+## Verified for 0.2.1
+
+- Positive discovery results now last 30 days. A regression check confirms reuse
+  at 29 days and reinspection at 30 days. Negative results still expire in 5 minutes.
+- ETag invalidation, account isolation, and Refresh behavior are unchanged.
+- Thumbnail HTTP cache headers remain controlled by the server; this release does
+  not add an image-body cache or claim 30-day browser image caching.
+- 23 automated tests and JavaScript syntax checks pass.
+
 ## Verified for 0.2.0
 
 - 23 automated tests pass; JavaScript syntax checks pass.

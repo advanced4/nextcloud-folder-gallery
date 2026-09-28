@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nextcloud Folder Gallery
 // @namespace    https://github.com/advanced4/nextcloud-folder-gallery
-// @version      0.2.0
+// @version      0.2.1
 // @description  Browse Nextcloud folders using their existing preview images.
 // @match        https://*/apps/files/*
 // @match        https://*/index.php/apps/files/*
@@ -58,7 +58,7 @@
   const PREVIEW_MATCH = /(?:preview|sphere).*\.(png|jpe?g)$/i;
   const ID = 'nc-folder-gallery';
   const CONCURRENCY = 4;
-  const CACHE_TTL = 24 * 60 * 60 * 1000;
+  const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
   const EMPTY_TTL = 5 * 60 * 1000;
   const CACHE_LIMIT = 5000;
   const DAV = 'DAV:';

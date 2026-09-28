@@ -333,7 +333,13 @@ test('cache expires, skips missing etags, and isolates accounts and installation
   const saved = savedCache(first);
   assert.equal(JSON.parse(saved[0][1]).length, 2);
   const records = JSON.parse(saved[0][1]);
-  records.forEach(([, value]) => { value.time -= value.preview ? 86400001 : 300001; });
+  const day = 24 * 60 * 60 * 1000;
+  records.forEach(([, value]) => { value.time -= value.preview ? 29 * day : 300001; });
+  const withinLifetime = setup(t, { handler, saved: [[saved[0][0], JSON.stringify(records)]] });
+  await finished(withinLifetime);
+  assert.equal(withinLifetime.calls.length, 3); // Parent, expired negative result, and missing ETag.
+  assert.ok(withinLifetime.calls.every(call => !new URL(call.url).pathname.endsWith('/Asset/')));
+  records.forEach(([, value]) => { if (value.preview) value.time -= day; });
   const expired = setup(t, { handler, saved: [[saved[0][0], JSON.stringify(records)]] });
   await finished(expired);
   assert.equal(expired.calls.length, 4);

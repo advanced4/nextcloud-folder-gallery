@@ -38,7 +38,7 @@ Discovery metadata is stored in this Nextcloud site's browser `localStorage`,
 separated by installation and account, with a limit of 5,000 records per account.
 It contains folder paths/IDs, change identifiers, and selected image IDs, not image
 bodies or credentials. It is not stored in userscript-manager sync or sent to GitHub.
-Folder ETag changes invalidate entries. Positive results expire after 24 hours;
+Folder ETag changes invalidate entries. Positive results expire after 30 days;
 "no preview" results expire after 5 minutes. Refresh bypasses both. Without a folder
 ETag, the script does not reuse its discovery result. Storage failures are reported
 and the gallery continues without persistent caching.
@@ -47,6 +47,8 @@ Cached visits still check the parent directory and authenticate thumbnail reques
 as required by the browser's HTTP cache. This is not an offline asset mirror or a
 security boundary: cached metadata remains on the browser until cleared or evicted.
 Clearing site data removes it. Images follow the browser's normal cache lifecycle.
+The 30-day discovery lifetime does not override the server's thumbnail HTTP cache
+headers. The tested Nextcloud version uses a separate 24-hour thumbnail lifetime.
 All folder tiles are still created in the DOM; rendering is not virtualized.
 
 ## Privacy and permissions
