@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nextcloud Folder Gallery
 // @namespace    https://github.com/advanced4/nextcloud-folder-gallery
-// @version      0.1.0
+// @version      0.1.1
 // @description  Browse Nextcloud folders using their existing preview images.
 // @match        https://*/apps/files/*
 // @match        https://*/index.php/apps/files/*
@@ -54,7 +54,8 @@
 (() => {
   'use strict';
 
-  const PREVIEW_MATCH = /preview.*\.(png|jpe?g)$/i;
+  const DEFAULT_KEYWORDS = ['poliigon'];
+  const PREVIEW_MATCH = /(?:preview|sphere).*\.(png|jpe?g)$/i;
   const ID = 'nc-folder-gallery';
   const CONCURRENCY = 4;
   const DAV = 'DAV:';
@@ -74,8 +75,8 @@
     if (!route || !uid || !dir.startsWith('/')) return null;
     const settingsKey = `folder-gallery:${url.origin}:${route[1]}:${uid}`;
     const stored = GM_getValue(settingsKey, null);
-    const keywords = Array.isArray(stored) ? stored.filter(v => typeof v === 'string' && v.trim()).map(v => v.trim().toLowerCase()) : null;
-    const eligible = keywords?.some(word => dir.toLowerCase().includes(word));
+    const keywords = Array.isArray(stored) ? stored.filter(v => typeof v === 'string' && v.trim()).map(v => v.trim().toLowerCase()) : DEFAULT_KEYWORDS;
+    const eligible = keywords.some(word => dir.toLowerCase().includes(word));
     return { base: route[1], uid, dir: dir.replace(/\/+$/, '') || '/', settingsKey, keywords, eligible,
       key: JSON.stringify([uid, url.pathname, dir, keywords]) };
   }
@@ -323,15 +324,6 @@
     root.id = ID;
     root.setAttribute('aria-label', 'Folder gallery');
     const toolbar = element('div', '', 'fg-toolbar');
-    if (!ctx.eligible) {
-      const setup = element('button', 'Set up folder previews');
-      setup.type = 'button';
-      setup.addEventListener('click', configure);
-      toolbar.append(setup);
-      root.append(toolbar);
-      native.before(root);
-      return { root, native, ctx, controller: new AbortController() };
-    }
     const toggle = element('button', 'Folder gallery');
     toggle.type = 'button';
     const search = element('input');
@@ -355,12 +347,12 @@
   function sync() {
     const ctx = context();
     const native = document.querySelector('#app-content-vue > .files-list');
-    if (!ctx || !native || (!ctx.eligible && ctx.keywords !== null)) { cleanup(); lastKey = ''; return; }
+    if (!ctx || !native || !ctx.eligible) { cleanup(); lastKey = ''; return; }
     if (ctx.key === lastKey && state?.root.isConnected && state.native === native) return;
     cleanup();
     lastKey = ctx.key;
     state = mount(ctx, native);
-    if (ctx.eligible) load(state);
+    load(state);
   }
 
   // Nextcloud navigates without page reloads. Observe its DOM, not private Vue stores.

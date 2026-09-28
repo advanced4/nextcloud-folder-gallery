@@ -45,14 +45,44 @@ async function until(fn) {
 }
 const finished = s => until(() => s.doc.querySelector('.fg-status')?.textContent.includes('previews /'));
 
-test('first use makes no requests and stores keywords only through the manager', async t => {
+test('fresh install automatically shows previews in case-insensitive poliigon paths without saving settings', async t => {
+  const s = setup(t, { keywords: null, dir: '/Library/Poliigon/Free', handler: url => {
+    const parent = url.pathname.replace(/\/$/, '');
+    return { status: 207, body: xml(parent, parent.endsWith('/Free') ? [{ name: 'Example', folder: true }] : [{ name: 'preview.png' }]) };
+  } });
+  await finished(s);
+  assert.ok(s.doc.querySelector('.fg-cover img'));
+  assert.equal(s.doc.querySelector('button').textContent, 'Show normal files');
+  assert.equal(s.storage.size, 0);
+});
+
+test('fresh install leaves unrelated paths untouched without showing setup', t => {
   const s = setup(t, { keywords: null });
   assert.equal(s.calls.length, 0);
-  assert.equal(s.doc.querySelector('button').textContent, 'Set up folder previews');
+  assert.equal(s.doc.querySelector('#nc-folder-gallery'), null);
+});
+
+test('optional manager menu can override default keywords privately', async t => {
+  const s = setup(t, { keywords: null });
   s.w.prompt = () => ' ASSETS, assets, Materials ';
-  s.doc.querySelector('button').click();
+  s.menus[0]();
   await finished(s);
   assert.deepEqual(Array.from(s.storage.values())[0].join(','), 'assets,materials');
+});
+
+test('sphere names support PNG, JPG and JPEG case-insensitively with natural ordering', async t => {
+  for (const extension of ['PNG', 'JpG', 'JPEG']) {
+    const s = setup(t, { handler: url => {
+      const parent = url.pathname.replace(/\/$/, '');
+      return { status: 207, body: xml(parent, parent === root ? [{ name: 'Example', folder: true }] : [
+        { name: 'example_sphere1.svg' }, { name: 'example_sphere1.png.txt' },
+        { name: `example_SPHERE10.${extension}` }, { name: `example_Sphere2.${extension}` },
+        { name: `example_sphere1.${extension}`, folder: true }, { name: 'basecolor.png' },
+      ]) };
+    } });
+    await finished(s);
+    assert.ok(s.doc.querySelector('.fg-cover img').src.endsWith(`example_Sphere2.${extension}`));
+  }
 });
 
 test('unmatched paths, disabled config, unsigned pages, and special views do not read folders', t => {

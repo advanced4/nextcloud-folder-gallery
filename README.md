@@ -8,11 +8,13 @@ extra account, or runtime dependency is required.
 
 ## Rules
 
-- Configure your own comma-separated path keywords in the browser after installation.
+- Works automatically when the current folder path contains `poliigon`; no setup required.
+- Optional private keyword overrides remain available in the script manager menu.
+  Existing settings, including an explicitly disabled empty list, are preserved on update.
 - Path and preview-name matching are case-insensitive substring matches.
 - For a matching current directory, list each immediate child folder.
 - Inside each child, choose a directly contained PNG/JPG/JPEG whose name includes
-  `preview`. Use natural filename order when more than one qualifies.
+  `preview` or `sphere`. Use natural filename order when more than one qualifies.
 - No recursive scans, archive extraction, or generated renders.
 - Folders with no cover stay accessible. With no covers at all, retain normal Files.
 - Search filters the listed folder names. ZIP downloads use Nextcloud's own DAV endpoint.
@@ -26,7 +28,7 @@ screenshots of a real library, or captured API responses.
 
 The HTTPS match patterns cover Nextcloud Files URL shapes on any host. At runtime
 the script requires the signed-in Nextcloud Files DOM and, before reading folders,
-a locally configured matching keyword. Requests are same-origin and use the existing
+a matching path keyword (the public default is `poliigon`). Requests are same-origin and use the existing
 session; redirects are rejected. The script has no cross-origin request privilege.
 Keywords are stored with the userscript manager, separately per origin, installation
 path, and account. They are not sent to the project site. Manager-level cloud sync,
