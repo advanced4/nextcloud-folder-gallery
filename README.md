@@ -12,13 +12,42 @@ extra account, or runtime dependency is required.
 - Optional private keyword overrides remain available in the script manager menu.
   Existing settings, including an explicitly disabled empty list, are preserved on update.
 - Path and preview-name matching are case-insensitive substring matches.
-- For a matching current directory, list each immediate child folder.
+- For a matching current directory, list its immediate child folders once.
 - Inside each child, choose a directly contained PNG/JPG/JPEG whose name includes
   `preview` or `sphere`. Use natural filename order when more than one qualifies.
 - No recursive scans, archive extraction, or generated renders.
-- Folders with no cover stay accessible. With no covers at all, retain normal Files.
+- Inspect child folders only when their tiles are visible or within 400 pixels of the view.
+- Folders with no cover stay accessible. Normal Files is always available via the toggle.
 - Search filters the listed folder names. ZIP downloads use Nextcloud's own DAV endpoint.
-- Refresh rescans uploaded/changed files. No persistent catalog or preview cache.
+- Refresh clears cached choices in the current directory and rescans nearby tiles.
+
+## Requests and caching
+
+The gallery requests Nextcloud's 256-pixel thumbnails, preserving aspect ratio,
+instead of downloading the original images. Nextcloud handles thumbnail generation
+and HTTP caching. Image URLs include the image ETag and account identity so changed
+images and different accounts do not reuse the same browser-cache key. Failed
+thumbnails show a placeholder; they never fall back to large original downloads.
+
+Each visit makes one fresh parent-directory listing. Up to four child-folder
+listings run concurrently, only for nearby tiles without a valid cached choice.
+Scrolling and searching bring more tiles into view. Switching to normal Files
+pauses queued lookups; leaving the directory aborts ongoing lookups.
+
+Discovery metadata is stored in this Nextcloud site's browser `localStorage`,
+separated by installation and account, with a limit of 5,000 records per account.
+It contains folder paths/IDs, change identifiers, and selected image IDs, not image
+bodies or credentials. It is not stored in userscript-manager sync or sent to GitHub.
+Folder ETag changes invalidate entries. Positive results expire after 24 hours;
+"no preview" results expire after 5 minutes. Refresh bypasses both. Without a folder
+ETag, the script does not reuse its discovery result. Storage failures are reported
+and the gallery continues without persistent caching.
+
+Cached visits still check the parent directory and authenticate thumbnail requests
+as required by the browser's HTTP cache. This is not an offline asset mirror or a
+security boundary: cached metadata remains on the browser until cleared or evicted.
+Clearing site data removes it. Images follow the browser's normal cache lifecycle.
+All folder tiles are still created in the DOM; rendering is not virtualized.
 
 ## Privacy and permissions
 
@@ -73,5 +102,9 @@ Tests use synthetic filenames and an example.invalid server only.
 API reference: [Nextcloud WebDAV](https://docs.nextcloud.com/server/stable/developer_manual/client_apis/WebDAV/basic.html).
 Folder ZIP query behavior was checked against the
 [Nextcloud 33.0.4 download action](https://github.com/nextcloud/server/blob/v33.0.4/apps/files/src/actions/downloadAction.ts).
+Thumbnail parameters and caching were checked against the
+[33.0.4 preview controller](https://github.com/nextcloud/server/blob/v33.0.4/core/Controller/PreviewController.php),
+and folder ETag propagation against its
+[cache updater](https://github.com/nextcloud/server/blob/v33.0.4/lib/private/Files/Cache/Updater.php).
 
 MIT licensed; icon notices are in [THIRD_PARTY.md](THIRD_PARTY.md).

@@ -11,9 +11,9 @@ const encode = path => path.split('/').map(encodeURIComponent).join('/');
 function xml(parent, entries) {
   return `<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">${[
     { href: parent, folder: true }, ...entries.map(e => ({ ...e, href: e.href || `${parent}/${encode(e.name)}` })),
-  ].map(e => `<d:response><d:href>${escape(e.href)}</d:href><d:propstat><d:prop><d:resourcetype>${e.folder ? '<d:collection/>' : ''}</d:resourcetype><oc:fileid>123</oc:fileid><nc:hide-download>${e.hidden || false}</nc:hide-download></d:prop><d:status>HTTP/1.1 ${e.status || 200} OK</d:status></d:propstat></d:response>`).join('')}</d:multistatus>`;
+  ].map(e => `<d:response><d:href>${escape(e.href)}</d:href><d:propstat><d:prop><d:resourcetype>${e.folder ? '<d:collection/>' : ''}</d:resourcetype><oc:fileid>${e.id ?? '123'}</oc:fileid><d:getetag>${escape(e.etag ?? 'etag-1')}</d:getetag><nc:hide-download>${e.hidden || false}</nc:hide-download></d:prop><d:status>HTTP/1.1 ${e.status || 200} OK</d:status></d:propstat></d:response>`).join('')}</d:multistatus>`;
 }
-function setup(t, { dir = '/assets', keywords = ['assets'], handler, uid = 'test', route = '/apps/files/files', base = '' } = {}) {
+function setup(t, { dir = '/assets', keywords = ['assets'], handler, uid = 'test', route = '/apps/files/files', base = '', autoVisible = true, saved = [], storageFailure = false } = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body><main id="app-content-vue"><div class="files-list">Native files</div></main></body></html>', {
     url: `${origin}${route}?dir=${encodeURIComponent(dir)}`, runScripts: 'outside-only', pretendToBeVisual: true,
   });
@@ -26,6 +26,18 @@ function setup(t, { dir = '/assets', keywords = ['assets'], handler, uid = 'test
   w.GM_setValue = (key, value) => storage.set(key, value);
   const menus = [];
   w.GM_registerMenuCommand = (label, fn) => menus.push(fn);
+  for (const [key, value] of saved) w.localStorage.setItem(key, value);
+  if (storageFailure) w.Storage.prototype.setItem = () => { throw new Error('Quota exceeded'); };
+  const observers = [];
+  w.IntersectionObserver = class {
+    constructor(callback, options) { this.callback = callback; this.options = options; this.targets = new Set(); observers.push(this); }
+    observe(target) {
+      this.targets.add(target);
+      if (autoVisible) queueMicrotask(() => { if (this.targets.has(target)) this.emit([target]); });
+    }
+    disconnect() { this.targets.clear(); }
+    emit(targets, isIntersecting = true) { this.callback(targets.map(target => ({ target, isIntersecting }))); }
+  };
   const calls = [];
   w.fetch = async (url, options) => {
     calls.push({ url: String(url), options });
@@ -34,7 +46,7 @@ function setup(t, { dir = '/assets', keywords = ['assets'], handler, uid = 'test
   };
   w.eval(source);
   t.after(() => w.close());
-  return { w, doc: w.document, calls, storage, menus };
+  return { w, doc: w.document, calls, storage, menus, observers };
 }
 async function until(fn) {
   const end = Date.now() + 2500;
@@ -43,7 +55,15 @@ async function until(fn) {
     await new Promise(resolve => setTimeout(resolve, 10));
   }
 }
-const finished = s => until(() => s.doc.querySelector('.fg-status')?.textContent.includes('previews /'));
+const finished = s => until(() => s.doc.querySelector('.fg-status')?.textContent.includes('previews /')
+  && ![...s.doc.querySelectorAll('.fg-placeholder')].some(el => !el.hidden && /pending|Checking/.test(el.textContent)));
+const savedCache = s => Object.entries(s.w.localStorage);
+function revisit(s) {
+  s.w.history.pushState({}, '', '/apps/files/files?dir=/documents');
+  s.w.dispatchEvent(new s.w.PopStateEvent('popstate'));
+  s.w.history.pushState({}, '', '/apps/files/files?dir=/assets');
+  s.w.dispatchEvent(new s.w.PopStateEvent('popstate'));
+}
 
 test('fresh install automatically shows previews in case-insensitive poliigon paths without saving settings', async t => {
   const s = setup(t, { keywords: null, dir: '/Library/Poliigon/Free', handler: url => {
@@ -76,12 +96,12 @@ test('sphere names support PNG, JPG and JPEG case-insensitively with natural ord
       const parent = url.pathname.replace(/\/$/, '');
       return { status: 207, body: xml(parent, parent === root ? [{ name: 'Example', folder: true }] : [
         { name: 'example_sphere1.svg' }, { name: 'example_sphere1.png.txt' },
-        { name: `example_SPHERE10.${extension}` }, { name: `example_Sphere2.${extension}` },
+        { name: `example_SPHERE10.${extension}`, id: '10' }, { name: `example_Sphere2.${extension}`, id: '2' },
         { name: `example_sphere1.${extension}`, folder: true }, { name: 'basecolor.png' },
       ]) };
     } });
     await finished(s);
-    assert.ok(s.doc.querySelector('.fg-cover img').src.endsWith(`example_Sphere2.${extension}`));
+    assert.equal(new URL(s.doc.querySelector('.fg-cover img').src).searchParams.get('fileId'), '2');
   }
 });
 
@@ -99,12 +119,19 @@ test('case-insensitive matching, immediate previews, natural selection and ZIP l
     if (parent.endsWith('/ASSETS')) return { status: 207, body: xml(parent, [{ name: 'Stone & Metal #1', folder: true }, { name: 'file.png' }]) };
     return { status: 207, body: xml(parent, [
       { name: 'basecolor.png' }, { name: 'nested', folder: true }, { name: 'PREVIEW10.PNG' },
-      { name: 'PREVIEW2.JPEG' }, { name: 'preview.svg' }, { name: 'preview1.png', folder: true },
+      { name: 'PREVIEW2.JPEG', id: '2' }, { name: 'preview.svg' }, { name: 'preview1.png', folder: true },
     ]) };
   } });
   await finished(s);
   assert.equal(s.doc.querySelectorAll('.fg-card').length, 1);
-  assert.match(s.doc.querySelector('.fg-cover img').src, /PREVIEW2\.JPEG$/);
+  const thumbnail = new URL(s.doc.querySelector('.fg-cover img').src);
+  assert.equal(thumbnail.pathname, '/index.php/core/preview');
+  assert.equal(thumbnail.searchParams.get('fileId'), '2');
+  assert.equal(thumbnail.searchParams.get('x'), '256');
+  assert.equal(thumbnail.searchParams.get('y'), '256');
+  assert.equal(thumbnail.searchParams.get('a'), 'true');
+  assert.equal(thumbnail.searchParams.get('c'), 'etag-1');
+  assert.equal(thumbnail.searchParams.get('user'), 'test');
   const zip = new URL(s.doc.querySelector('.fg-download').href);
   assert.equal(zip.searchParams.get('accept'), 'zip');
   assert.match(zip.pathname, /Stone%20%26%20Metal%20%231\/$/);
@@ -171,7 +198,7 @@ test('bounded concurrency and partial listing failure', async t => {
   } });
   await finished(s);
   assert.equal(maximum, 4);
-  assert.match(s.doc.querySelector('.fg-status').textContent, /8 previews \/ 9 folders; 1 could not be read/);
+  assert.match(s.doc.querySelector('.fg-status').textContent, /8 previews \/ 9 folders; 9 checked; 1 could not be read/);
 });
 
 test('expired session and malformed XML report errors and retain native files', async t => {
@@ -192,7 +219,7 @@ test('navigation aborts outstanding work and removes all gallery UI', async t =>
   assert.equal(s.doc.querySelector('#nc-folder-gallery'), null);
 });
 
-test('refresh discovers newly uploaded previews without persistent caching', async t => {
+test('refresh bypasses persistent negative cache to discover newly uploaded previews', async t => {
   let present = false;
   const s = setup(t, { handler: url => {
     const parent = url.pathname.replace(/\/$/, '');
@@ -226,4 +253,165 @@ test('manager configuration is namespaced and can disable an active gallery', as
   assert.equal(s.doc.querySelector('#nc-folder-gallery'), null);
   assert.equal(s.storage.size, 1);
   assert.deepEqual([...s.storage.keys()], [`folder-gallery:${origin}::test`]);
+});
+
+test('thousands of folders only inspect intersecting cards, including search results', async t => {
+  const s = setup(t, { autoVisible: false, handler: url => {
+    const parent = url.pathname.replace(/\/$/, '');
+    return { status: 207, body: xml(parent, parent === root
+      ? Array.from({ length: 2000 }, (_, i) => ({ name: `Asset${i}`, folder: true })) : [{ name: 'preview.png' }]) };
+  } });
+  await until(() => s.observers.length);
+  assert.equal(s.calls.length, 1);
+  const cards = [...s.doc.querySelectorAll('.fg-card')];
+  assert.equal(cards.length, 2000);
+  assert.equal(s.observers[0].options.root, s.doc.querySelector('.fg-grid'));
+  s.observers[0].emit(cards.slice(0, 3));
+  await until(() => s.doc.querySelectorAll('img').length === 3);
+  assert.equal(s.calls.length, 4);
+  const input = s.doc.querySelector('input');
+  input.value = 'Asset1999'; input.dispatchEvent(new s.w.Event('input'));
+  s.observers[0].emit(cards.slice(0, 3), false);
+  s.observers[0].emit([cards[1999]]);
+  await until(() => s.doc.querySelectorAll('img').length === 4);
+  assert.equal(s.calls.length, 5);
+});
+
+test('scrolling away and hiding gallery drops queued work and navigation aborts active scans', async t => {
+  const s = setup(t, { autoVisible: false, handler: (url, options) => {
+    const parent = url.pathname.replace(/\/$/, '');
+    if (parent === root) return { status: 207, body: xml(parent, Array.from({ length: 10 }, (_, i) => ({ name: `Asset${i}`, folder: true }))) };
+    return new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+  } });
+  await until(() => s.observers.length);
+  const cards = [...s.doc.querySelectorAll('.fg-card')];
+  s.observers[0].emit(cards);
+  assert.equal(s.calls.length, 5);
+  s.observers[0].emit(cards.slice(4), false);
+  s.doc.querySelector('button').click();
+  assert.equal(s.calls.length, 5);
+  s.w.history.pushState({}, '', '/apps/files/files?dir=/documents');
+  s.w.dispatchEvent(new s.w.PopStateEvent('popstate'));
+  assert.ok(s.calls.slice(1).every(call => call.options.signal.aborted));
+  assert.equal(s.observers[0].targets.size, 0);
+});
+
+test('persistent positive and negative cache avoid rescans, etags invalidate only changed folders', async t => {
+  let tag = 'old';
+  const handler = url => {
+    const parent = url.pathname.replace(/\/$/, '');
+    return { status: 207, body: xml(parent, parent === root
+      ? [{ name: 'Asset', folder: true, etag: tag }, { name: 'Empty', folder: true }]
+      : parent.endsWith('/Empty') ? [] : [{ name: 'preview.png', id: '9', etag: tag }]) };
+  };
+  const first = setup(t, { handler });
+  await finished(first);
+  assert.equal(first.calls.length, 3);
+  const second = setup(t, { handler, saved: savedCache(first) });
+  await finished(second);
+  assert.equal(second.calls.length, 1);
+  assert.ok(second.doc.querySelector('img'));
+  tag = 'new';
+  revisit(second);
+  await finished(second);
+  assert.equal(second.calls.length, 3);
+  assert.equal(new URL(second.doc.querySelector('img').src).searchParams.get('c'), 'new');
+  second.doc.querySelector('.fg-icon').click();
+  await finished(second);
+  assert.equal(second.calls.length, 6);
+});
+
+test('cache expires, skips missing etags, and isolates accounts and installation paths', async t => {
+  const handler = url => {
+    const parent = url.pathname.replace(/\/$/, '');
+    return { status: 207, body: xml(parent, parent.endsWith('/assets')
+      ? [{ name: 'Asset', folder: true }, { name: 'Empty', folder: true }, { name: 'NoTag', folder: true, etag: '' }]
+      : parent.endsWith('/Empty') ? [] : [{ name: 'preview.png' }]) };
+  };
+  const first = setup(t, { handler });
+  await finished(first);
+  const saved = savedCache(first);
+  assert.equal(JSON.parse(saved[0][1]).length, 2);
+  const records = JSON.parse(saved[0][1]);
+  records.forEach(([, value]) => { value.time -= value.preview ? 86400001 : 300001; });
+  const expired = setup(t, { handler, saved: [[saved[0][0], JSON.stringify(records)]] });
+  await finished(expired);
+  assert.equal(expired.calls.length, 4);
+  for (const options of [{ uid: 'other' }, { base: '/cloud', route: '/cloud/apps/files/files' }]) {
+    const isolated = setup(t, { handler, saved, ...options });
+    await finished(isolated);
+    assert.equal(isolated.calls.length, 4);
+    assert.ok(isolated.doc.querySelector('img').src.startsWith(`${origin}${options.base || ''}/index.php/core/preview?`));
+  }
+});
+
+test('thumbnail errors evict discovery cache without falling back to original files', async t => {
+  const s = setup(t, { handler: url => {
+    const parent = url.pathname.replace(/\/$/, '');
+    return { status: 207, body: xml(parent, parent === root ? [{ name: 'Asset', folder: true }] : [{ name: 'preview.png' }]) };
+  } });
+  await finished(s);
+  s.doc.querySelector('img').dispatchEvent(new s.w.Event('error'));
+  assert.equal(s.doc.querySelector('img'), null);
+  assert.equal(JSON.parse(savedCache(s)[0][1]).length, 0);
+  revisit(s);
+  await finished(s);
+  assert.equal(s.calls.length, 4);
+});
+
+test('storage failures are reported without breaking previews and invalid cache data is not trusted', async t => {
+  const handler = url => {
+    const parent = url.pathname.replace(/\/$/, '');
+    return { status: 207, body: xml(parent, parent === root ? [{ name: 'Asset', folder: true }] : [{ name: 'preview.png' }]) };
+  };
+  const s = setup(t, { handler, storageFailure: true });
+  await finished(s);
+  assert.ok(s.doc.querySelector('img'));
+  assert.match(s.doc.querySelector('.fg-status').textContent, /Local cache unavailable/);
+  const poisoned = setup(t, { handler, saved: [[`folder-gallery:${origin}::test:previews:v1`, JSON.stringify([
+    [JSON.stringify(['123', '/assets/Asset']), { etag: 'etag-1', time: Date.now(), preview: { id: 'https://other.invalid', etag: 'bad' } }],
+  ])]] });
+  await finished(poisoned);
+  assert.equal(poisoned.calls.length, 2);
+  assert.equal(new URL(poisoned.doc.querySelector('img').src).origin, origin);
+});
+
+test('refresh cancels an old scan without allowing stale results to update the new gallery', async t => {
+  let tag = 'original', hanging = false;
+  const s = setup(t, { handler: (url, options) => {
+    const parent = url.pathname.replace(/\/$/, '');
+    if (parent === root) return { status: 207, body: xml(parent, [{ name: 'Asset', folder: true, etag: tag }]) };
+    if (hanging) return new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+    return { status: 207, body: xml(parent, [{ name: 'preview.png' }]) };
+  } });
+  await finished(s);
+  hanging = true; tag = 'changed'; revisit(s);
+  await until(() => s.calls.length === 4);
+  hanging = false;
+  s.doc.querySelector('.fg-icon').click();
+  await finished(s);
+  assert.equal(s.calls[3].options.signal.aborted, true);
+  assert.equal(s.doc.querySelectorAll('img').length, 1);
+  assert.equal(s.calls.length, 6);
+});
+
+test('refresh clears unvisited cached choices and persistence is bounded to 5000 entries', async t => {
+  const cacheKey = `folder-gallery:${origin}::test:previews:v1`;
+  const records = Array.from({ length: 5002 }, (_, i) => [JSON.stringify(['123', `/assets/Asset${i}`]),
+    { etag: 'etag-1', time: Date.now() - 100, preview: { id: '123', etag: 'etag-1' } }]);
+  const s = setup(t, { autoVisible: false, saved: [[cacheKey, JSON.stringify(records)]], handler: url => {
+    const parent = url.pathname.replace(/\/$/, '');
+    return { status: 207, body: xml(parent, parent === root
+      ? [{ name: 'Asset4999', folder: true }, { name: 'New', folder: true }] : [{ name: 'preview.png' }]) };
+  } });
+  await until(() => s.observers.length);
+  s.observers[0].emit([s.doc.querySelectorAll('.fg-card')[1]]);
+  await until(() => s.doc.querySelector('img'));
+  assert.equal(JSON.parse(s.w.localStorage.getItem(cacheKey)).length, 5000);
+  s.doc.querySelector('.fg-icon').click();
+  await until(() => s.observers.length === 2);
+  assert.ok(!JSON.parse(s.w.localStorage.getItem(cacheKey)).some(([key]) => key.includes('/assets/Asset4999')));
+  s.observers[1].emit([s.doc.querySelector('.fg-card')]);
+  await until(() => s.doc.querySelector('img'));
+  assert.equal(s.calls.length, 4);
 });

@@ -27,7 +27,7 @@
           <p>Your script manager should open an installation confirmation. If you see source code instead, use the copy-and-paste option below.</p>
         </li>
         <li><strong>Open Nextcloud Files.</strong>
-          <p>Reload the page and browse a folder whose path contains <code>poliigon</code>. The gallery appears automatically when it finds preview images. No setup is required.</p>
+          <p>Reload the page and browse a folder whose path contains <code>poliigon</code>. The gallery appears automatically and loads nearby previews. No setup is required.</p>
         </li>
       </ol>
       <p class="note">On Chrome or Edge, your browser may ask you to enable userscripts for the extension. Follow your manager's official setup instructions. Desktop Chrome, Edge, and Firefox are the initial targets; other browsers are not yet verified.</p>
@@ -43,12 +43,14 @@
     <section aria-labelledby="rules-title">
       <h2 id="rules-title">What becomes a preview?</h2>
       <p>In a matching path, the script checks each immediate child folder for a PNG, JPG, or JPEG with <code>preview</code> or <code>sphere</code> anywhere in its filename. Path and filename matching ignore capitalization. If there are several, it picks the first in natural filename order, so <code>Preview2.png</code> comes before <code>Preview10.png</code>.</p>
-      <p>Keep the preview directly inside the asset folder. ZIP inspection, nested preview searches, and generated renders are not included. Folders without an image remain accessible. If no previews are found, the normal file view stays visible.</p>
+      <p>Keep the preview directly inside the asset folder. ZIP inspection, nested preview searches, and generated renders are not included. Folders without an image remain accessible. The normal file view is always available through the gallery toggle.</p>
+      <p>Previews use small Nextcloud thumbnails. Folders are checked as you scroll, and discovered image choices are cached in this browser. Changed folders are checked again; Refresh clears the current directory's cached choices.</p>
     </section>
     <section aria-labelledby="privacy-title">
       <h2 id="privacy-title">Your files stay yours</h2>
       <p>The gallery reads folder listings and preview images from the Nextcloud site you are signed into. It never uploads, renames, or deletes your files. It does not send your server address, folder names, images, keywords, or login information to this website.</p>
       <p>Script managers may contact this GitHub Pages site to check for code updates. There are no analytics, remote libraries, or third-party image services in the script. The public project contains no real library content or server addresses.</p>
+      <p>The discovery cache stays in your Nextcloud site's browser storage, separate for each account. It holds folder paths, file IDs, and change identifiers, not image copies or login details. Choices expire after 24 hours, or 5 minutes when no image was found. Clearing Nextcloud site data removes the cache.</p>
       <p>Optionally, change or disable matching through your script manager's menu on a Nextcloud Files page: <b>Configure folder previews for this Nextcloud account</b>. Custom keywords stay in your browser and take precedence over the default; existing settings are preserved on update. An empty keyword list disables previews. Disabling the script and reloading restores the normal page.</p>
     </section>
     <footer><a href="https://github.com/advanced4/nextcloud-folder-gallery">Source &amp; issues</a><span>Free software · MIT license · Not affiliated with Nextcloud</span></footer>

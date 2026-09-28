@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nextcloud Folder Gallery
 // @namespace    https://github.com/advanced4/nextcloud-folder-gallery
-// @version      0.1.1
+// @version      0.2.0
 // @description  Browse Nextcloud folders using their existing preview images.
 // @match        https://*/apps/files/*
 // @match        https://*/index.php/apps/files/*
@@ -58,6 +58,9 @@
   const PREVIEW_MATCH = /(?:preview|sphere).*\.(png|jpe?g)$/i;
   const ID = 'nc-folder-gallery';
   const CONCURRENCY = 4;
+  const CACHE_TTL = 24 * 60 * 60 * 1000;
+  const EMPTY_TTL = 5 * 60 * 1000;
+  const CACHE_LIMIT = 5000;
   const DAV = 'DAV:';
   const OC = 'http://owncloud.org/ns';
   const NC = 'http://nextcloud.org/ns';
@@ -95,6 +98,63 @@
     return url.href;
   }
 
+  function thumbnailUrl(ctx, preview) {
+    if (!/^[1-9]\d*$/.test(preview.id)) throw new Error('Preview has no valid Nextcloud file ID.');
+    const url = new URL(`${ctx.base}/index.php/core/preview`, location.origin);
+    // Nextcloud rounds to powers of four: 512 would produce a 1024px preview.
+    url.search = new URLSearchParams({ fileId: preview.id, x: '256', y: '256', a: 'true',
+      forceIcon: '0', c: preview.etag, user: ctx.uid }).toString();
+    return url.href;
+  }
+
+  // Store only discovery metadata locally, not image bodies or login details.
+  function previewCache(ctx) {
+    const key = `${ctx.settingsKey}:previews:v1`;
+    let entries = new Map(), timer, dirty = false, unavailable = false;
+    function valid(record) {
+      return record && typeof record.etag === 'string' && record.etag
+        && Number.isFinite(record.time) && record.time <= Date.now()
+        && Date.now() - record.time < (record.preview === null ? EMPTY_TTL : CACHE_TTL)
+        && (record.preview === null || (record.preview && /^[1-9]\d*$/.test(record.preview.id)
+          && typeof record.preview.etag === 'string'));
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || '[]');
+      if (Array.isArray(saved)) entries = new Map(saved.filter(pair => Array.isArray(pair)
+        && typeof pair[0] === 'string' && valid(pair[1])).slice(-CACHE_LIMIT));
+    } catch { unavailable = true; }
+    const cacheKey = item => JSON.stringify([item.folder.id, item.path]);
+    function flush() {
+      clearTimeout(timer);
+      if (!dirty) return;
+      entries = new Map([...entries].filter(([, record]) => valid(record))
+        .sort((a, b) => a[1].time - b[1].time).slice(-CACHE_LIMIT));
+      try { localStorage.setItem(key, JSON.stringify([...entries])); unavailable = false; }
+      catch { unavailable = true; }
+      dirty = false;
+    }
+    function changed() {
+      dirty = true;
+      clearTimeout(timer);
+      timer = setTimeout(flush, 250);
+    }
+    return {
+      get unavailable() { return unavailable; },
+      get(item) {
+        const record = entries.get(cacheKey(item));
+        return valid(record) && record.etag === item.folder.etag ? record.preview : undefined;
+      },
+      put(item, preview) {
+        if (!item.folder.etag) return;
+        entries.set(cacheKey(item), { etag: item.folder.etag, time: Date.now(), preview });
+        changed();
+      },
+      remove(item) { if (entries.delete(cacheKey(item))) changed(); },
+      clear() { entries.clear(); changed(); },
+      flush,
+    };
+  }
+
   function parseListing(xml, requestUrl) {
     const doc = new DOMParser().parseFromString(xml, 'application/xml');
     if (doc.querySelector('parsererror') || doc.documentElement.localName !== 'multistatus'
@@ -128,7 +188,7 @@
     const timer = setTimeout(abort, 20000);
     try {
       const response = await fetch(url, { method: 'PROPFIND', credentials: 'same-origin', mode: 'same-origin',
-        redirect: 'error', signal: timeout.signal, headers: { Depth: '1', 'Content-Type': 'application/xml',
+        redirect: 'error', cache: 'no-store', signal: timeout.signal, headers: { Depth: '1', 'Content-Type': 'application/xml',
           'X-Requested-With': 'XMLHttpRequest', requesttoken: document.head.dataset.requesttoken || '' }, body: listingBody });
       if (response.status === 401) throw new Error('Your Nextcloud session expired. Sign in again.');
       if (response.status === 403) throw new Error('Nextcloud denied access to this folder.');
@@ -207,6 +267,8 @@
   function cleanup() {
     if (!state) return;
     state.controller.abort();
+    state.run?.observer.disconnect();
+    state.cache.flush();
     state.native.classList.remove('fg-native-hidden');
     state.root.remove();
     state = null;
@@ -220,6 +282,7 @@
     s.search.hidden = !active;
     s.toggle.setAttribute('aria-pressed', String(active));
     s.toggle.textContent = active ? 'Show normal files' : 'Folder gallery';
+    s.run?.pump();
   }
 
   function applyFilter(s) {
@@ -228,6 +291,7 @@
     s.cards.forEach(({ folder, card }) => { card.hidden = !folder.name.toLocaleLowerCase().includes(query); if (!card.hidden) visible++; });
     s.empty.hidden = visible !== 0;
     s.empty.textContent = s.cards.length ? 'No matching folders.' : 'No child folders.';
+    s.run?.pump();
   }
 
   function cardFor(s, folder) {
@@ -236,7 +300,7 @@
     const cover = element('a', '', 'fg-cover');
     cover.href = openUrl(s.ctx, path);
     cover.setAttribute('aria-label', `Open folder ${folder.name}`);
-    const placeholder = element('span', 'Checking preview...', 'fg-placeholder');
+    const placeholder = element('span', 'Preview pending', 'fg-placeholder');
     cover.append(placeholder);
     const caption = element('div', '', 'fg-caption');
     const name = element('a', folder.name, 'fg-name');
@@ -255,11 +319,13 @@
     }
     card.append(cover, caption);
     s.grid.append(card);
-    return { folder, card, cover, placeholder, path };
+    return { folder, card, cover, placeholder, path, near: false, started: false };
   }
 
-  async function load(s) {
+  async function load(s, force = false) {
     s.controller.abort();
+    s.run?.observer.disconnect();
+    s.run = null;
     s.controller = new AbortController();
     const signal = s.controller.signal;
     s.refresh.disabled = true;
@@ -268,50 +334,102 @@
     s.cards = [];
     s.empty = element('p');
     s.grid.append(s.empty);
-    let completed = 0, found = 0, failed = 0;
     try {
       const entries = await list(s.ctx, s.ctx.dir, signal);
       if (signal.aborted) return;
       const folders = entries.filter(e => e.folder).sort((a, b) => collator.compare(a.name, b.name));
       s.cards = folders.map(folder => cardFor(s, folder));
+      if (force) { s.cards.forEach(item => s.cache.remove(item)); s.cache.flush(); }
       applyFilter(s);
-      let next = 0;
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, s.cards.length) }, async () => {
-        while (next < s.cards.length && !signal.aborted) {
-          const item = s.cards[next++];
-          try {
+      if (!s.cards.length) { s.status.textContent = '0 previews / 0 folders'; show(s, false); return; }
+      if (typeof IntersectionObserver !== 'function') throw new Error('This browser does not support lazy folder previews.');
+      let active = 0, completed = 0, found = 0, failed = 0, pumping = false;
+      const queue = new Set();
+      const items = new Map(s.cards.map(item => [item.card, item]));
+      function status() {
+        s.status.textContent = `${found} previews / ${s.cards.length} folders; ${completed} checked${failed ? `; ${failed} could not be read. Try Refresh.` : ''}${s.cache.unavailable ? '; Local cache unavailable.' : ''}`;
+      }
+      async function inspect(item) {
+        active++;
+        item.started = true;
+        item.placeholder.textContent = 'Checking preview...';
+        try {
+          let preview = s.cache.get(item);
+          if (preview === undefined) {
             const children = await list(s.ctx, item.path, signal);
             if (signal.aborted) return;
-            const preview = children.filter(e => !e.folder && !e.hideDownload && PREVIEW_MATCH.test(e.name))
+            const match = children.filter(e => !e.folder && !e.hideDownload && PREVIEW_MATCH.test(e.name))
               .sort((a, b) => collator.compare(a.name, b.name))[0];
-            if (preview) {
-              const img = element('img');
-              img.alt = '';
-              img.loading = 'lazy';
-              img.decoding = 'async';
-              img.referrerPolicy = 'same-origin';
-              img.addEventListener('error', () => { img.remove(); item.placeholder.hidden = false; item.placeholder.textContent = 'Preview unavailable'; });
-              img.src = preview.href;
-              item.placeholder.hidden = true;
-              item.cover.append(img);
-              found++;
-              if (s.choice === null) show(s, true);
-            } else item.placeholder.textContent = 'No preview';
-          } catch (error) {
-            if (signal.aborted) return;
-            failed++;
-            item.placeholder.textContent = 'Could not read folder';
-            item.placeholder.title = error.message;
+            preview = match ? { id: match.id, etag: match.etag } : null;
+            if (preview) thumbnailUrl(s.ctx, preview);
+            s.cache.put(item, preview);
           }
-          completed++;
-          s.status.textContent = `Checked ${completed} of ${s.cards.length} folders`;
+          if (preview) {
+            const img = element('img');
+            img.alt = '';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            img.referrerPolicy = 'same-origin';
+            img.addEventListener('error', () => {
+              if (signal.aborted) return;
+              s.cache.remove(item);
+              s.cache.flush();
+              found--; failed++; status();
+              img.remove(); item.placeholder.hidden = false; item.placeholder.textContent = 'Preview unavailable';
+            }, { once: true });
+            img.src = thumbnailUrl(s.ctx, preview);
+            item.placeholder.hidden = true;
+            item.cover.append(img);
+            found++;
+          } else item.placeholder.textContent = 'No preview';
+        } catch (error) {
+          if (signal.aborted) return;
+          s.cache.remove(item);
+          failed++;
+          item.placeholder.textContent = 'Could not read folder';
+          item.placeholder.title = error.message;
+        } finally {
+          active--;
+          if (!signal.aborted) {
+            completed++;
+            pump();
+            if (!active) s.cache.flush();
+            status();
+            if (completed === s.cards.length && !found && s.choice === null) show(s, false);
+          }
         }
-      }));
-      if (signal.aborted) return;
-      s.status.textContent = `${found} previews / ${s.cards.length} folders${failed ? `; ${failed} could not be read. Try Refresh.` : ''}`;
-      if (!found && s.choice === null) show(s, false);
+      }
+      function pump() {
+        if (signal.aborted || !s.active || pumping) return;
+        pumping = true;
+        try {
+          for (const item of queue) {
+            if (active >= CONCURRENCY) break;
+            if (item.near && !item.card.hidden && !item.started) {
+              queue.delete(item);
+              void inspect(item);
+            }
+          }
+        } finally {
+          pumping = false;
+        }
+      }
+      const observer = new IntersectionObserver(records => {
+        for (const record of records) {
+          const item = items.get(record.target);
+          item.near = record.isIntersecting;
+          if (item.near && !item.started) queue.add(item);
+          else queue.delete(item);
+        }
+        pump();
+      }, { root: s.grid, rootMargin: '400px 0px' });
+      s.run = { observer, pump };
+      status();
+      show(s, s.choice !== false);
+      s.cards.forEach(item => observer.observe(item.card));
     } catch (error) {
       if (signal.aborted) return;
+      s.cache.clear();
       s.status.textContent = error.message;
       show(s, false);
     } finally {
@@ -336,10 +454,11 @@
     toolbar.append(toggle, search, refresh, status);
     root.append(toolbar, grid);
     native.before(root);
-    const s = { root, native, ctx, toggle, search, refresh, status, grid, cards: [], controller: new AbortController(), active: false, choice: null };
+    const s = { root, native, ctx, toggle, search, refresh, status, grid, cards: [], cache: previewCache(ctx),
+      controller: new AbortController(), active: false, choice: null, run: null };
     toggle.addEventListener('click', () => { s.choice = !s.active; show(s, s.choice); });
     search.addEventListener('input', () => applyFilter(s));
-    refresh.addEventListener('click', () => load(s));
+    refresh.addEventListener('click', () => load(s, true));
     show(s, false);
     return s;
   }

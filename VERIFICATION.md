@@ -4,6 +4,27 @@ Automated tests exercise the actual distributed script inside a synthetic DOM:
 setup/privacy boundaries, matching, XML parsing, preview selection, URL encoding,
 download links, concurrency, errors, navigation cancellation, refresh, and search.
 
+## Verified for 0.2.0
+
+- 23 automated tests pass; JavaScript syntax checks pass.
+- A synthetic 2,000-folder directory makes only one parent request until tiles
+  intersect the view; three intersecting tiles add exactly three folder lookups.
+- Positive and negative discovery caching, ETag invalidation, expiration, account
+  and installation isolation, 5,000-entry limit, storage failures, and Refresh
+  invalidation are covered. Navigation/Refresh abort old requests and observers.
+- Thumbnail URLs use the authenticated Nextcloud endpoint and do not fall back to
+  original images. Failed thumbnail loads evict the cached discovery choice.
+- Live Nextcloud 33.0.4 / Chrome: temporarily executed the distributed source using
+  test substitutes for the three manager functions. Actual folder APIs, localStorage,
+  IntersectionObserver, thumbnail images, search, and scrolling were exercised.
+- A cached return visit required only the parent listing for already seen tiles;
+  searching for an unvisited folder added one child lookup.
+- Sampled thumbnails rendered at 256 pixels, with successful responses and private
+  24-hour HTTP caching. The server rounds 512-pixel requests up to 1024, so the script
+  deliberately requests 256 instead.
+- Desktop and 390-pixel-wide layouts inspected; no horizontal page overflow.
+- Updating the installed userscript through the manager has not yet been verified.
+
 ## Verified for 0.1.1
 
 - 15 automated tests pass; JavaScript syntax checks pass.
