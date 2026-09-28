@@ -1,0 +1,13 @@
+{
+  "name": "nextcloud-folder-gallery",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A read-only folder preview gallery userscript for Nextcloud",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check docs/nextcloud-folder-gallery.user.js && node --check docs/site.js"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}

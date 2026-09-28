@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Install a free folder-preview gallery for Nextcloud. Your files stay on your server.">
+  <meta name="referrer" content="no-referrer">
+  <title>Nextcloud Folder Gallery</title>
+  <link rel="stylesheet" href="site.css">
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Nextcloud Folder Gallery</h1>
+      <p class="lead">Your folders, with a picture on the front.</p>
+      <p>A free userscript. No server installation. No extra account.</p>
+    </header>
+    <section aria-labelledby="install-title">
+      <h2 id="install-title">Install</h2>
+      <ol>
+        <li><strong>Choose one script manager.</strong>
+          <p><a href="https://www.tampermonkey.net/">Get Tampermonkey</a> or <a href="https://violentmonkey.github.io/get-it/">get Violentmonkey</a>. Their official pages link to the stores for supported browsers. You only need one.</p>
+        </li>
+        <li><strong>Add the gallery.</strong>
+          <p><a class="install" href="nextcloud-folder-gallery.user.js">Install Folder Gallery</a></p>
+          <p>Your script manager should open an installation confirmation. If you see source code instead, use the copy-and-paste option below.</p>
+        </li>
+        <li><strong>Open Nextcloud Files.</strong>
+          <p>Reload the page, choose <b>Set up folder previews</b>, and enter the folder path keywords you want to match. For example, <code>materials, assets</code>. These settings stay in your browser.</p>
+        </li>
+      </ol>
+      <p class="note">On Chrome or Edge, your browser may ask you to enable userscripts for the extension. Follow your manager's official setup instructions. Desktop Chrome, Edge, and Firefox are the initial targets; other browsers are not yet verified.</p>
+    </section>
+    <section aria-labelledby="copy-title">
+      <h2 id="copy-title">Or copy and paste</h2>
+      <p>Create a new script in either manager, replace the starter code with this code, and save. Then reload Nextcloud.</p>
+      <div class="code-actions"><button id="copy" type="button" disabled>Copy script</button><a href="nextcloud-folder-gallery.user.js" download>Download script</a><span id="copy-status" role="status"></span></div>
+      <label class="visually-hidden" for="source">Complete userscript source</label>
+      <textarea id="source" readonly spellcheck="false" wrap="off" rows="12">Loading source...</textarea>
+      <noscript><p>JavaScript is off. Open the Download script link to read and copy the source.</p></noscript>
+    </section>
+    <section aria-labelledby="rules-title">
+      <h2 id="rules-title">What becomes a preview?</h2>
+      <p>In a matching path, the script checks each immediate child folder for a PNG, JPG, or JPEG with <code>preview</code> anywhere in its filename. Matching ignores capitalization. If there are several, it picks the first in natural filename order, so <code>Preview2.png</code> comes before <code>Preview10.png</code>.</p>
+      <p>Keep the preview directly inside the asset folder. ZIP inspection, nested preview searches, and generated renders are not included. Folders without an image remain accessible. If no previews are found, the normal file view stays visible.</p>
+    </section>
+    <section aria-labelledby="privacy-title">
+      <h2 id="privacy-title">Your files stay yours</h2>
+      <p>The gallery reads folder listings and preview images from the Nextcloud site you are signed into. It never uploads, renames, or deletes your files. It does not send your server address, folder names, images, keywords, or login information to this website.</p>
+      <p>Script managers may contact this GitHub Pages site to check for code updates. There are no analytics, remote libraries, or third-party image services in the script. The public project contains no real library content or server addresses.</p>
+      <p>To change or disable matching, open your script manager's menu on a Nextcloud Files page and select <b>Configure folder previews for this Nextcloud account</b>. An empty keyword list disables previews. Disabling the script and reloading restores the normal page.</p>
+    </section>
+    <footer><a href="https://github.com/advanced4/nextcloud-folder-gallery">Source &amp; issues</a><span>Free software · MIT license · Not affiliated with Nextcloud</span></footer>
+  </main>
+</body>
+</html>
